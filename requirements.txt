@@ -6,6 +6,8 @@
 #
 -e file:///Users/glyph/Projects/Twisted
     # via file:///users/glyph/projects/twisted
+appscript==1.3.0
+    # via -r requirements.in
 attrs==25.3.0
     # via
     #   service-identity
@@ -30,6 +32,12 @@ idna==3.10
     #   twisted
 incremental==24.7.2
     # via twisted
+lxml==5.4.0
+    # via appscript
+mypy==1.15.0
+    # via -r requirements.in
+mypy-extensions==1.1.0
+    # via mypy
 pyasn1==0.6.1
     # via
     #   pyasn1-modules
@@ -43,7 +51,9 @@ pyopenssl==25.1.0
 service-identity==24.2.0
     # via twisted
 typing-extensions==4.13.2
-    # via twisted
+    # via
+    #   mypy
+    #   twisted
 wsproto==1.2.0
     # via twisted
 zope-interface==7.2
