@@ -1,3 +1,6 @@
 -e '../Twisted[websocket,tls]'
 appscript
 mypy
+keyring
+treq
+cattrs

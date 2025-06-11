@@ -1,0 +1,3 @@
+[tool.mypy]
+namespace_packages = true
+plugins = ["mypy_zope:plugin"]
