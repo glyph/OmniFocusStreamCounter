@@ -1,6 +1,7 @@
 -e '../Twisted[websocket,tls]'
 appscript
 mypy
+mypy_zope
 keyring
 treq
 cattrs
