@@ -5,7 +5,7 @@ from appscript import k
 from twisted.internet.task import LoopingCall
 from twisted.logger import Logger
 from twisted.python.failure import Failure
-from twisted.web.iweb import IRequest
+# from twisted.web.iweb import IRequest
 from twisted.web.server import Request
 from twisted.web.websocket import WebSocketResource, WebSocketTransport
 
@@ -13,7 +13,7 @@ omnifocus = appscript.app("omnifocus")
 doc = omnifocus.documents[0].get()
 
 from datetime import date, datetime, timedelta
-from time import time
+# from time import time
 
 from appscript import its
 
@@ -39,10 +39,10 @@ log = Logger()
 def query(enum_func):
     all_completed = 0.0
     all_pending = 0.0
-    t0 = time()
+    # t0 = time()
     today = date.today()
     tomorrow = today + timedelta(days=1)
-    yesterday = today - timedelta(days=1)
+    # yesterday = today - timedelta(days=1)
     e = doc.flattened_tasks[
         ((its.effective_due_date >= today).AND(its.effective_due_date < tomorrow)).OR(
             (its.completion_date >= today).OR(its.dropped_date >= today)
@@ -62,7 +62,7 @@ def query(enum_func):
     log.info("enumerated everything!")
     avail_pct = all_completed / (available_pending + all_completed)
     complete_pct = all_completed / (all_pending + all_completed)
-    tn = time()
+    # tn = time()
     return (avail_pct, complete_pct)
 
 
