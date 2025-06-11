@@ -3,7 +3,7 @@ from pyscript import document, WebSocket
 
 def onopen(event):
     counter.removeChild(counter.childNodes[0])
-    counter.append("OPENED!")
+    counter.append("OPEN")
 
 
 def onmessage(event):
@@ -13,13 +13,13 @@ def onmessage(event):
 
 def onclose(event):
     counter.removeChild(counter.childNodes[0])
-    counter.append("CLOSED")
+    counter.append("OOF!")
 
 
 counter = document.getElementById("counter")
 
 ws = WebSocket(
-    url="wss://gale.host.glyph.im/omnifocus-socket.rpy",
+    url="wss://gale.host.glyph.im/irc-socket.rpy",
     onopen=onopen,
     onmessage=onmessage,
     onclose=onclose,
