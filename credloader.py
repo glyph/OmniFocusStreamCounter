@@ -48,7 +48,9 @@ class OAuthStorage:
         if response.code == 200:
             print("validstructure", json)
             myAlias: TypeAlias = AppValidation | Validation
-            self._cachedValidation = converter.structure(json, myAlias)  # type:ignore[arg-type]
+            self._cachedValidation = converter.structure(
+                json, myAlias
+            )  # type:ignore[arg-type]
             return self._cachedValidation
         else:
             return None
@@ -246,7 +248,9 @@ async def main(reactor: Any) -> None:
         await storage.refresh()
 
     bot_creds = next(each for each in creds if each.name() == "bot-uat.json")
-    broadcaster_creds = next(each for each in creds if each.name() == "broadcaster-uat.json")
+    broadcaster_creds = next(
+        each for each in creds if each.name() == "broadcaster-uat.json"
+    )
     app_creds = next(each for each in creds if each.name() == "chat-app-token.json")
 
     print("bot", bot_creds)
