@@ -49,8 +49,9 @@ class OAuthStorage:
             print("validstructure", json)
             myAlias: TypeAlias = AppValidation | Validation
             self._cachedValidation = converter.structure(
-                json, myAlias
-            )  # type:ignore[arg-type]
+                json,
+                myAlias,  # type:ignore[arg-type]
+            )
             return self._cachedValidation
         else:
             return None
