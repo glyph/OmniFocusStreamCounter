@@ -217,7 +217,7 @@ class IncomingChatWebsocket:
                         # First, print the message to the program's console.
                         print(
                             f'{jdata["payload"]["event"]["broadcaster_user_login"]} '
-                            f'<${jdata["payload"]["event"]["chatter_user_login"]}> '
+                            f'<{jdata["payload"]["event"]["chatter_user_login"]}> '
                             f'{jdata["payload"]["event"]["message"]["text"]}'
                         )
 
