@@ -19,7 +19,7 @@ def onclose(event):
 counter = document.getElementById("counter")
 
 ws = WebSocket(
-    url="wss://gale.host.glyph.im/irc-socket.rpy",
+    url="wss://gale.host.glyph.im/omnifocus-socket.rpy",
     onopen=onopen,
     onmessage=onmessage,
     onclose=onclose,
