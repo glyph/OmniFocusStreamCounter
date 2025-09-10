@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from typing import Protocol
+from typing import Awaitable, Callable, Protocol
 
 from appscript import app, its, k
 from twisted.internet.defer import Deferred
@@ -12,6 +12,9 @@ from twisted.logger import Logger, textFileLogObserver
 omnifocus = app("omnifocus")
 log = Logger()
 doc = omnifocus.documents[0].get()
+
+mail = app("mail")
+inbox = mail.accounts["Fastmail"]().mailboxes["INBOX"]
 
 
 def available(task) -> bool:
@@ -27,6 +30,15 @@ def available(task) -> bool:
     not_deferred = defer_date == k.missing_value or defer_date <= datetime.now()
     parent_available = parent == k.missing_value or available(parent)
     tags_available = all(tag.allows_next_action() for tag in task.tags())
+    # print(
+    #     f"""
+    # checking task: {task.name()}
+    #     unblocked: {unblocked}
+    #     not_deferred: {not_deferred}
+    #     parent_available: {parent_available}
+    #     tags_available: {tags_available}
+    # """
+    # )
     return unblocked and not_deferred and parent_available and tags_available
 
 
@@ -38,6 +50,72 @@ class ProgressStatus(Protocol):
     ) -> None: ...
 
 
+async def updateOnce(rest: Callable[[], Awaitable[None]]) -> tuple[float, float]:
+    all_completed = 0.0
+    all_pending = 0.0
+    # t0 = time()
+    today = date.today()
+    tomorrow = today + timedelta(days=1)
+    # yesterday = today - timedelta(days=1)
+
+    # print("constructing query")
+    e = doc.flattened_tasks[
+        (
+            (its.effective_due_date < tomorrow)
+            .AND(its.effectively_completed == False)
+            .AND(its.effectively_dropped == False)
+        ).OR((its.completion_date >= today).OR(its.dropped_date >= today))
+    ]
+    # print("constructed")
+    pending = []
+    available_pending = 0.0
+    # wait for omnifocus to be in the background so we don't block its
+    # UI and make it unpleasant to use.
+    while omnifocus.frontmost():
+        await rest()
+    # print("getting...")
+    reflist = e.get()
+    # print(f"gotted: {len(reflist)}")
+    lastrep = 0.0
+    for i, eachref in enumerate(reflist):
+        pctdone = (i + 1) / len(reflist)
+        if pctdone == 1.0 or (pctdone - lastrep >= 0.05):
+            lastrep = pctdone
+            log.info(
+                "querying omnifocus {pctdone:0.1f}% done",
+                pctdone=(pctdone * 100),
+            )
+        await rest()
+        each = eachref.get()
+        if each.effectively_completed() or each.effectively_dropped():
+            all_completed += 1
+            log.info(
+                "COMPLETED/DROPPED {name} {all_completed}",
+                name=each.name(),
+                all_completed=all_completed,
+            )
+        else:
+            pending.append(each)
+            log.info("PENDING {name} {pending}", name=each.name(), pending=len(pending))
+            all_pending += 1
+            if available(each):
+                log.info(
+                    "   available {available_pending}",
+                    available_pending=available_pending,
+                )
+                available_pending += 1
+            else:
+                log.info(
+                    "   NOT available {available_pending}",
+                    available_pending=available_pending,
+                )
+    log.info("enumerated everything!")
+    remaining_mail = len(inbox.messages())
+    avail_pct = all_completed / (available_pending + all_completed + remaining_mail)
+    complete_pct = all_completed / (all_pending + all_completed)
+    return (avail_pct, complete_pct)
+
+
 def query(reactor: object, updatePercentages: ProgressStatus) -> Deferred[None]:
     clock = IReactorTime(reactor)
 
@@ -45,51 +123,15 @@ def query(reactor: object, updatePercentages: ProgressStatus) -> Deferred[None]:
         await deferLater(clock, 0.25)
 
     async def keepChecking() -> None:
+        # print("Checking!")
         while True:
+            # print("Resting!")
             await rest()
-            all_completed = 0.0
-            all_pending = 0.0
-            # t0 = time()
-            today = date.today()
-            tomorrow = today + timedelta(days=1)
-            # yesterday = today - timedelta(days=1)
-
-            e = doc.flattened_tasks[
-                (
-                    (its.effective_due_date >= today).AND(
-                        its.effective_due_date < tomorrow
-                    )
-                ).OR((its.completion_date >= today).OR(its.dropped_date >= today))
-            ]
-            pending = []
-            available_pending = 0.0
-            # wait for omnifocus to be in the background so we don't block its
-            # UI and make it unpleasant to use.
-            while omnifocus.frontmost():
-                await rest()
-            reflist = e.get()
-            lastrep = 0.0
-            for i, eachref in enumerate(reflist):
-                pctdone = (i + 1) / len(reflist)
-                if pctdone == 1.0 or (pctdone - lastrep >= 0.05):
-                    lastrep = pctdone
-                    log.info(
-                        "querying omnifocus {pctdone:0.1f}% done",
-                        pctdone=(pctdone * 100),
-                    )
-                await rest()
-                each = eachref.get()
-                if each.effectively_completed() or each.effectively_dropped():
-                    all_completed += 1
-                else:
-                    pending.append(each)
-                    all_pending += 1
-                    if available(each):
-                        available_pending += 1
-            log.info("enumerated everything!")
-            avail_pct = all_completed / (available_pending + all_completed)
-            complete_pct = all_completed / (all_pending + all_completed)
+            # print("Computing!")
+            avail_pct, complete_pct = await updateOnce(rest)
+            # print("Updating!")
             updatePercentages.updateProgress(avail_pct, complete_pct)
+            # print("Updated!")
             # tn = time()
 
     return Deferred.fromCoroutine(keepChecking())
