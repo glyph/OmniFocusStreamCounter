@@ -43,14 +43,20 @@ def available(task) -> bool:
 
 
 class ProgressStatus(Protocol):
+    def updateLoading(self, loadedPercent: float) -> None:
+        "the next refresh is C{loadedPercent} done loading"
+
     def updateProgress(
         self,
         availablePercent: float,
         completePercent: float,
-    ) -> None: ...
+    ) -> None:
+        "we are availablePercent through the day"
 
 
-async def updateOnce(rest: Callable[[], Awaitable[None]]) -> tuple[float, float]:
+async def updateOnce(
+    rest: Callable[[], Awaitable[None]], updatePercentages: ProgressStatus
+) -> tuple[float, float]:
     all_completed = 0.0
     all_pending = 0.0
     # t0 = time()
@@ -78,12 +84,13 @@ async def updateOnce(rest: Callable[[], Awaitable[None]]) -> tuple[float, float]
     # print(f"gotted: {len(reflist)}")
     lastrep = 0.0
     for i, eachref in enumerate(reflist):
-        pctdone = (i + 1) / len(reflist)
-        if pctdone == 1.0 or (pctdone - lastrep >= 0.05):
+        pctdone = ((i + 1) / len(reflist)) * 100
+        updatePercentages.updateLoading(pctdone)
+        if pctdone == 100.0 or (pctdone - lastrep >= 1.0):
             lastrep = pctdone
             log.info(
                 "querying omnifocus {pctdone:0.1f}% done",
-                pctdone=(pctdone * 100),
+                pctdone=pctdone,
             )
         await rest()
         each = eachref.get()
@@ -120,7 +127,7 @@ def query(reactor: object, updatePercentages: ProgressStatus) -> Deferred[None]:
     clock = IReactorTime(reactor)
 
     async def rest() -> None:
-        await deferLater(clock, 0.25)
+        await deferLater(clock, 0.1)
 
     async def keepChecking() -> None:
         # print("Checking!")
@@ -128,7 +135,7 @@ def query(reactor: object, updatePercentages: ProgressStatus) -> Deferred[None]:
             # print("Resting!")
             await rest()
             # print("Computing!")
-            avail_pct, complete_pct = await updateOnce(rest)
+            avail_pct, complete_pct = await updateOnce(rest, updatePercentages)
             # print("Updating!")
             updatePercentages.updateProgress(avail_pct, complete_pct)
             # print("Updated!")
@@ -148,6 +155,8 @@ if __name__ == "__main__":
             print(
                 f"Updating completion percentage: {availablePercent} {completePercent}"
             )
+        def updateLoading(self, loadedPercent: float) -> None:
+            pass
 
     from sys import stdout
 

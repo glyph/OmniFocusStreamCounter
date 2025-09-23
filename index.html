@@ -8,9 +8,62 @@
   <link rel="stylesheet" href="/pyscript/core.css">
   <link rel="stylesheet" href="counter.css">
  </head>
- <body>
-  <div id="counter">
-   COUNTER!!
+ <body style="
+  border: 0;
+  padding: 0;
+  margin: 0;
+  z-index: -2;
+  background: black;
+  ">
+  <div
+   style="
+   color: white;
+   height: 100vh;
+   width: 100vw;
+   border: 0;
+   padding: 0;
+   margin: 0;
+   "><div
+      id="progress"
+      style="
+      position: absolute;
+      top: 0%;
+      left: 0%;
+      width: 50%;
+      height: 100%;
+      border: 0;
+      padding: 0;
+      margin: 0;
+      background-color: #0f0;
+      z-index: -1;
+      "
+     ></div>
+   <div
+    id="loading"
+    style="
+    position: absolute;
+    bottom: 0%;
+    left: 0%;
+    width: 75%;
+    height: 10%;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    background-color: #00f;
+    z-index: -1;
+    "
+   ></div>
+   <div
+    style="
+    z-index: 10;
+    color: white;
+    background-color: transparent;
+    text-align: center;
+    text-shadow: 1px 1px 5px black;
+    font-family: Menlo;
+    "
+    id="counter"
+   >COUNT!!</div>
   </div>
   <script type="mpy" src="boot.py"> </script>
  </body>
