@@ -141,7 +141,9 @@ def query(reactor: object, updatePercentages: ProgressStatus) -> Deferred[None]:
             # print("Updated!")
             # tn = time()
 
-    return Deferred.fromCoroutine(keepChecking())
+    return Deferred.fromCoroutine(keepChecking()).addErrback(
+        lambda f: log.failure("in omnifocus check loop", f)
+    )
 
 
 if __name__ == "__main__":
@@ -155,6 +157,7 @@ if __name__ == "__main__":
             print(
                 f"Updating completion percentage: {availablePercent} {completePercent}"
             )
+
         def updateLoading(self, loadedPercent: float) -> None:
             pass
 
