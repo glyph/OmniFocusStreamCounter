@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Awaitable, Callable, Protocol
 
-from appscript import app, its, k
+from appscript import CommandError, app, its, k
 from twisted.internet.defer import Deferred
 from twisted.internet.interfaces import IReactorTime
 from twisted.internet.task import deferLater
@@ -67,7 +67,11 @@ async def updateOnce(
     # print("constructing query")
     e = doc.flattened_tasks[
         (
-            (its.effective_due_date < tomorrow)
+            (
+                (its.effective_due_date < tomorrow).OR(
+                    its.effective_planned_date < tomorrow
+                )
+            )
             .AND(its.effectively_completed == False)
             .AND(its.effectively_dropped == False)
         ).OR((its.completion_date >= today).OR(its.dropped_date >= today))
@@ -123,6 +127,19 @@ async def updateOnce(
     return (avail_pct, complete_pct)
 
 
+async def updateOnceGuard(
+    rest: Callable[[], Awaitable[None]], updatePercentages: ProgressStatus
+) -> tuple[float, float]:
+    while True:
+        try:
+            return await updateOnce(rest, updatePercentages)
+        except CommandError as ce:
+            print(f"command error: {ce}")
+            await rest()
+            mail.launch()
+            omnifocus.launch()
+
+
 def query(reactor: object, updatePercentages: ProgressStatus) -> Deferred[None]:
     clock = IReactorTime(reactor)
 
@@ -135,7 +152,7 @@ def query(reactor: object, updatePercentages: ProgressStatus) -> Deferred[None]:
             # print("Resting!")
             await rest()
             # print("Computing!")
-            avail_pct, complete_pct = await updateOnce(rest, updatePercentages)
+            avail_pct, complete_pct = await updateOnceGuard(rest, updatePercentages)
             # print("Updating!")
             updatePercentages.updateProgress(avail_pct, complete_pct)
             # print("Updated!")
