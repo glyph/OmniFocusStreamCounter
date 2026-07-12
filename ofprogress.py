@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Awaitable, Callable, Iterable, Protocol
 
 from appscript import CommandError, app, its, k
-from datetype import DateType
+from datetype import DateTime
 from twisted.internet.defer import Deferred
 from twisted.internet.interfaces import IReactorTime
 from twisted.internet.task import deferLater
@@ -18,16 +18,20 @@ mail = app("mail")
 inbox = mail.accounts["Fastmail"]().mailboxes["INBOX"]
 
 
+class ScriptThingy[T](Protocol):
+    def __call__(self) -> T: ...
+
+
 class SomeTag(Protocol):
-    def allows_next_action(self) -> bool: ...
+    allows_next_action: ScriptThingy[bool]
 
 
 class SomeTask(Protocol):
-    def effective_defer_date(self) -> DateType[None]: ...
-    def parent_task(self) -> SomeTask: ...
-    def blocked(self) -> bool: ...
-    def number_of_available_tasks(self) -> int: ...
-    def tags(self) -> Iterable[SomeTag]: ...
+    effective_defer_date: ScriptThingy[DateTime[None]]
+    parent_task: ScriptThingy[SomeTask]
+    blocked: ScriptThingy[bool]
+    number_of_available_tasks: ScriptThingy[int]
+    tags: ScriptThingy[Iterable[SomeTag]]
 
 
 def available(task: SomeTask) -> bool:
@@ -40,7 +44,7 @@ def available(task: SomeTask) -> bool:
     parent = task.parent_task()
     unblocked = not (task.blocked() and task.number_of_available_tasks() == 0)
     # xxx this should be number of *remaining*, right?
-    not_deferred = defer_date == k.missing_value or defer_date <= datetime.now()
+    not_deferred = defer_date == k.missing_value or defer_date <= DateTime.now()
     parent_available = parent == k.missing_value or available(parent)
     tags_available = all(tag.allows_next_action() for tag in task.tags())
     # print(
