@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Awaitable, Callable, Iterable, Protocol
 
 from appscript import CommandError, app, its, k
-from datetype import DateTime
+from datetype import Date, DateTime, Time
 from twisted.internet.defer import Deferred
 from twisted.internet.interfaces import IReactorTime
 from twisted.internet.task import deferLater
@@ -20,6 +20,10 @@ inbox = mail.accounts["Fastmail"]().mailboxes["INBOX"]
 
 class ScriptThingy[T](Protocol):
     def __call__(self) -> T: ...
+    def __lt__(self, other: T) -> ScriptThingy[bool]: ...
+    def __ge__(self, other: T) -> ScriptThingy[bool]: ...
+    def OR(self, other: ScriptThingy[T] | T) -> ScriptThingy[bool]: ...
+    def AND(self, other: ScriptThingy[T] | T) -> ScriptThingy[bool]: ...
 
 
 class SomeTag(Protocol):
@@ -27,7 +31,13 @@ class SomeTag(Protocol):
 
 
 class SomeTask(Protocol):
+    effective_due_date: ScriptThingy[DateTime[None]]
+    effectively_completed: ScriptThingy[bool]
+    effectively_dropped: ScriptThingy[bool]
+    completion_date: ScriptThingy[DateTime[None]]
+    dropped_date: ScriptThingy[DateTime[None]]
     effective_defer_date: ScriptThingy[DateTime[None]]
+    effective_planned_date: ScriptThingy[DateTime[None]]
     parent_task: ScriptThingy[SomeTask]
     blocked: ScriptThingy[bool]
     number_of_available_tasks: ScriptThingy[int]
@@ -71,28 +81,31 @@ class ProgressStatus(Protocol):
         "we are availablePercent through the day"
 
 
+def expression(
+    what: SomeTask, today: DateTime[None], tomorrow: DateTime[None]
+) -> object:
+    return (
+        (
+            (what.effective_due_date < tomorrow).OR(
+                what.effective_planned_date < tomorrow
+            )
+        )
+        .AND(what.effectively_completed == False)
+        .AND(what.effectively_dropped == False)
+    ).OR((what.completion_date >= today).OR(what.dropped_date >= today))
+
+
 async def updateOnce(
     rest: Callable[[], Awaitable[None]], updatePercentages: ProgressStatus
 ) -> tuple[float, float]:
     all_completed = 0.0
     all_pending = 0.0
     # t0 = time()
-    today = date.today()
+    today = DateTime.combine(Date.today(), Time.min)
     tomorrow = today + timedelta(days=1)
-    # yesterday = today - timedelta(days=1)
 
     # print("constructing query")
-    e = doc.flattened_tasks[
-        (
-            (
-                (its.effective_due_date < tomorrow).OR(
-                    its.effective_planned_date < tomorrow
-                )
-            )
-            .AND(its.effectively_completed == False)
-            .AND(its.effectively_dropped == False)
-        ).OR((its.completion_date >= today).OR(its.dropped_date >= today))
-    ]
+    e = doc.flattened_tasks[expression(its, today, tomorrow)]
     # print("constructed")
     pending = []
     available_pending = 0.0
