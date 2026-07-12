@@ -5,3 +5,4 @@ mypy_zope
 keyring
 treq
 cattrs
+datetype
