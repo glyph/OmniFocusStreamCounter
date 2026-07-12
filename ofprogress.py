@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import timedelta
-from typing import Awaitable, Callable, Iterable, Protocol
+from datetime import time, timedelta
+from typing import Any, Awaitable, Callable, Iterable, Protocol, Sequence
 
-from appscript import CommandError, app, its, k
-from datetype import Date, DateTime, Time
+from appscript import CommandError, Reference, app, its, k
+from datetype import Date, DateTime, naive
 from twisted.internet.defer import Deferred
 from twisted.internet.interfaces import IReactorTime
 from twisted.internet.task import deferLater
@@ -24,6 +24,7 @@ class AppScriptReference[T](Protocol):
     def __ge__(self, other: T) -> AppScriptReference[bool]: ...
     def OR(self, other: AppScriptReference[T] | T) -> AppScriptReference[bool]: ...
     def AND(self, other: AppScriptReference[T] | T) -> AppScriptReference[bool]: ...
+    def get(self) -> T: ...
 
 
 class SomeTag(Protocol):
@@ -31,6 +32,8 @@ class SomeTag(Protocol):
 
 
 class SomeTask(Protocol):
+    name: AppScriptReference[str]
+    id: AppScriptReference[str]
     effective_due_date: AppScriptReference[DateTime[None]]
     effectively_completed: AppScriptReference[bool]
     effectively_dropped: AppScriptReference[bool]
@@ -81,18 +84,65 @@ class ProgressStatus(Protocol):
         "we are availablePercent through the day"
 
 
+def AND(
+    a: AppScriptReference[Any] | bool, b: AppScriptReference[Any] | bool
+) -> AppScriptReference[bool] | bool:
+    operator = getattr(a, "AND", None)
+    if operator is None:
+        return bool(a and b)
+    else:
+        return operator(b)
+
+
+def OR(
+    a: AppScriptReference[Any] | bool, b: AppScriptReference[Any] | bool
+) -> AppScriptReference[bool] | bool:
+    operator = getattr(a, "OR", None)
+    if operator is None:
+        return bool(a or b)
+    else:
+        return operator(b)
+
+
+class Nope:
+    def __lt__(self, other: object) -> bool:
+        return False
+
+    def __ge__(self, other: object) -> bool:
+        return False
+
+
+def either[T](a: AppScriptReference[T]) -> AppScriptReference[T] | Nope:
+    if isinstance(a, Reference):
+        result = a.get()
+        if result == k.missing_value:
+            return Nope()
+        return result
+    else:
+        return a
+
+
 def expression(
     what: SomeTask, today: DateTime[None], tomorrow: DateTime[None]
-) -> object:
-    return (
+) -> AppScriptReference[bool] | bool:
+    return OR(
         (
-            (what.effective_due_date < tomorrow).OR(
-                what.effective_planned_date < tomorrow
+            AND(
+                AND(
+                    OR(
+                        (either(what.effective_due_date) < tomorrow),
+                        (either(what.effective_planned_date) < tomorrow),
+                    ),
+                    (either(what.effectively_completed) == False),
+                ),
+                (either(what.effectively_dropped) == False),
             )
-        )
-        .AND(what.effectively_completed == False)
-        .AND(what.effectively_dropped == False)
-    ).OR((what.completion_date >= today).OR(what.dropped_date >= today))
+        ),
+        OR(
+            (either(what.completion_date) >= today),
+            (either(what.dropped_date) >= today),
+        ),
+    )
 
 
 async def updateOnce(
@@ -101,11 +151,13 @@ async def updateOnce(
     all_completed = 0.0
     all_pending = 0.0
     # t0 = time()
-    today = DateTime.combine(Date.today(), Time.min)
+    today = DateTime.combine(Date.today(), naive(time.min))
     tomorrow = today + timedelta(days=1)
 
     # print("constructing query")
-    e = doc.flattened_tasks[expression(its, today, tomorrow)]
+    e: AppScriptReference[Sequence[AppScriptReference[SomeTask]]] = doc.flattened_tasks[
+        expression(its, today, tomorrow)
+    ]
     # print("constructed")
     pending = []
     available_pending = 0.0
@@ -128,6 +180,7 @@ async def updateOnce(
             )
         await rest()
         each = eachref.get()
+        # print(f"revalidating {each.id()}: {expression(each, today, tomorrow)}")
         if each.effectively_completed() or each.effectively_dropped():
             all_completed += 1
             log.info(
