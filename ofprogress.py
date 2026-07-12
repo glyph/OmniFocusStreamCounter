@@ -18,30 +18,30 @@ mail = app("mail")
 inbox = mail.accounts["Fastmail"]().mailboxes["INBOX"]
 
 
-class ScriptThingy[T](Protocol):
+class AppScriptReference[T](Protocol):
     def __call__(self) -> T: ...
-    def __lt__(self, other: T) -> ScriptThingy[bool]: ...
-    def __ge__(self, other: T) -> ScriptThingy[bool]: ...
-    def OR(self, other: ScriptThingy[T] | T) -> ScriptThingy[bool]: ...
-    def AND(self, other: ScriptThingy[T] | T) -> ScriptThingy[bool]: ...
+    def __lt__(self, other: T) -> AppScriptReference[bool]: ...
+    def __ge__(self, other: T) -> AppScriptReference[bool]: ...
+    def OR(self, other: AppScriptReference[T] | T) -> AppScriptReference[bool]: ...
+    def AND(self, other: AppScriptReference[T] | T) -> AppScriptReference[bool]: ...
 
 
 class SomeTag(Protocol):
-    allows_next_action: ScriptThingy[bool]
+    allows_next_action: AppScriptReference[bool]
 
 
 class SomeTask(Protocol):
-    effective_due_date: ScriptThingy[DateTime[None]]
-    effectively_completed: ScriptThingy[bool]
-    effectively_dropped: ScriptThingy[bool]
-    completion_date: ScriptThingy[DateTime[None]]
-    dropped_date: ScriptThingy[DateTime[None]]
-    effective_defer_date: ScriptThingy[DateTime[None]]
-    effective_planned_date: ScriptThingy[DateTime[None]]
-    parent_task: ScriptThingy[SomeTask]
-    blocked: ScriptThingy[bool]
-    number_of_available_tasks: ScriptThingy[int]
-    tags: ScriptThingy[Iterable[SomeTag]]
+    effective_due_date: AppScriptReference[DateTime[None]]
+    effectively_completed: AppScriptReference[bool]
+    effectively_dropped: AppScriptReference[bool]
+    completion_date: AppScriptReference[DateTime[None]]
+    dropped_date: AppScriptReference[DateTime[None]]
+    effective_defer_date: AppScriptReference[DateTime[None]]
+    effective_planned_date: AppScriptReference[DateTime[None]]
+    parent_task: AppScriptReference[SomeTask]
+    blocked: AppScriptReference[bool]
+    number_of_available_tasks: AppScriptReference[int]
+    tags: AppScriptReference[Iterable[SomeTag]]
 
 
 def available(task: SomeTask) -> bool:
