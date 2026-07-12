@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from typing import Awaitable, Callable, Protocol
+from typing import Awaitable, Callable, Iterable, Protocol
 
 from appscript import CommandError, app, its, k
+from datetype import DateType
 from twisted.internet.defer import Deferred
 from twisted.internet.interfaces import IReactorTime
 from twisted.internet.task import deferLater
@@ -17,7 +18,19 @@ mail = app("mail")
 inbox = mail.accounts["Fastmail"]().mailboxes["INBOX"]
 
 
-def available(task) -> bool:
+class SomeTag(Protocol):
+    def allows_next_action(self) -> bool: ...
+
+
+class SomeTask(Protocol):
+    def effective_defer_date(self) -> DateType[None]: ...
+    def parent_task(self) -> SomeTask: ...
+    def blocked(self) -> bool: ...
+    def number_of_available_tasks(self) -> int: ...
+    def tags(self) -> Iterable[SomeTag]: ...
+
+
+def available(task: SomeTask) -> bool:
     """
     determine if a task is available?
     """
