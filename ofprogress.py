@@ -326,9 +326,12 @@ class OFReader:
         if not anyChanges:
             return None
         reflist = self.cacher.values()
+        pcttime = self.clock.seconds()
         for i, each in enumerate(reflist):
             pctdone = ((i + 1) / len(reflist)) * 100
-            if pctdone == 100.0 or (pctdone - lastrep >= 1.0):
+            newtime = self.clock.seconds()
+            if pctdone == 100.0 or ((pctdone - lastrep >= 1.0) and ((newtime - pcttime) > 0.1)):
+                pcttime = newtime
                 lastrep = pctdone
                 log.info(
                     "querying omnifocus {pctdone:0.1f}% done",
