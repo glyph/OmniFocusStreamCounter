@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import time, timedelta
-from typing import Any, Awaitable, Callable, Iterable, Protocol, Sequence
+from typing import Any, Iterable, Protocol, Sequence
 
 from appscript import CommandError, Reference, app, its, k
-from datetype import Date, DateTime, naive
+from datetype import DateTime, naive
 from twisted.internet.defer import Deferred
 from twisted.internet.interfaces import IReactorTime
 from twisted.internet.task import deferLater
@@ -44,7 +45,11 @@ class SomeTask(Protocol):
     parent_task: AppScriptReference[SomeTask]
     blocked: AppScriptReference[bool]
     number_of_available_tasks: AppScriptReference[int]
+
+    # XXX doesn't work with caching yet
     tags: AppScriptReference[Iterable[SomeTag]]
+
+    def properties(self) -> dict[Any, Any]: ...
 
 
 def available(task: SomeTask) -> bool:
@@ -59,7 +64,7 @@ def available(task: SomeTask) -> bool:
     # xxx this should be number of *remaining*, right?
     not_deferred = defer_date == k.missing_value or defer_date <= DateTime.now()
     parent_available = parent == k.missing_value or available(parent)
-    tags_available = all(tag.allows_next_action() for tag in task.tags())
+    tags_available = True  # all(tag.allows_next_action() for tag in task.tags())
     # print(
     #     f"""
     # checking task: {task.name()}
@@ -145,103 +150,195 @@ def expression(
     )
 
 
-async def updateOnce(
-    rest: Callable[[], Awaitable[None]], updatePercentages: ProgressStatus
-) -> tuple[float, float]:
-    all_completed = 0.0
-    all_pending = 0.0
-    # t0 = time()
-    today = DateTime.combine(Date.today(), naive(time.min))
-    tomorrow = today + timedelta(days=1)
+@dataclass
+class PropertyCache:
+    _properties: dict[object, Any]
+    _cached_parent_task: Any = None
 
-    # print("constructing query")
-    e: AppScriptReference[Sequence[AppScriptReference[SomeTask]]] = doc.flattened_tasks[
-        expression(its, today, tomorrow)
-    ]
-    # print("constructed")
-    pending = []
-    available_pending = 0.0
-    # wait for omnifocus to be in the background so we don't block its
-    # UI and make it unpleasant to use.
-    while omnifocus.frontmost():
-        await rest()
-    # print("getting...")
-    reflist = e.get()
-    # print(f"gotted: {len(reflist)}")
-    lastrep = 0.0
-    for i, eachref in enumerate(reflist):
-        pctdone = ((i + 1) / len(reflist)) * 100
-        updatePercentages.updateLoading(pctdone)
-        if pctdone == 100.0 or (pctdone - lastrep >= 1.0):
-            lastrep = pctdone
-            log.info(
-                "querying omnifocus {pctdone:0.1f}% done",
-                pctdone=pctdone,
-            )
-        await rest()
-        each = eachref.get()
-        # print(f"revalidating {each.id()}: {expression(each, today, tomorrow)}")
-        if each.effectively_completed() or each.effectively_dropped():
-            all_completed += 1
-            log.info(
-                "COMPLETED/DROPPED {name} {all_completed}",
-                name=each.name(),
-                all_completed=all_completed,
-            )
-        else:
-            pending.append(each)
-            log.info("PENDING {name} {pending}", name=each.name(), pending=len(pending))
-            all_pending += 1
-            if available(each):
-                log.info(
-                    "   available {available_pending}",
-                    available_pending=available_pending,
-                )
-                available_pending += 1
+    def __getattr__(self, name: str) -> Any:
+        def get() -> Any:
+            result = self._properties[getattr(k, name)]
+            return result
+
+        return get
+
+    def parent_task(self) -> Any:
+        # do the same thing with tags?
+        if self._cached_parent_task is None:
+            ref = self._properties[k.parent_task]
+            if ref != k.missing_value:
+                ref = PropertyCache(ref.properties())
+            self._cached_parent_task = ref
+        return self._cached_parent_task
+
+    def properties(self) -> dict[object, Any]:
+        return self._properties
+
+
+def asPropertyCache(task: SomeTask) -> SomeTask:
+    result: Any = PropertyCache(task.properties())
+    return result
+
+
+@dataclass
+class Cacher:
+    clock: IReactorTime
+    cache: dict[str, SomeTask]  # map id to task
+    lastUpdateTime: DateTime[None]
+    updater: ProgressStatus
+    first: bool = True
+
+    @classmethod
+    async def new(cls, clock: IReactorTime, updater: ProgressStatus) -> Cacher:
+        now = DateTime.now()
+        today = now.date()
+        todayStart = DateTime.combine(today, naive(time.min))
+        tomorrowStart = todayStart + timedelta(days=1)
+        e: AppScriptReference[Sequence[SomeTask]] = doc.flattened_tasks[
+            expression(its, todayStart, tomorrowStart)
+        ]
+        log.info("Initial load...")
+        refList = e.get()
+        log.info("Loaded!")
+        initialCache = {}
+        for i, eachRef in enumerate(refList):
+            updater.updateLoading(100 * (i / len(refList)))
+            await deferLater(clock, 0.01)
+            cached = asPropertyCache(eachRef)
+            initialCache[cached.id()] = cached
+
+        return Cacher(clock, initialCache, now, updater)
+
+    async def checkForUpdates(self) -> bool:
+        now = DateTime.now()
+        # TODO: full refresh at midnight when date has changed
+        today = now.date()
+        todayStart = DateTime.combine(today, naive(time.min))
+        tomorrowStart = todayStart + timedelta(days=1)
+        then = self.lastUpdateTime
+        newAndUpdated = doc.flattened_tasks[its.modification_date > then]()
+        for i, task in enumerate(newAndUpdated):
+            self.updater.updateLoading((i / len(newAndUpdated)) * 100)
+            taskID = task.id()
+            if expression(task, todayStart, tomorrowStart):
+                self.cache[taskID] = asPropertyCache(task)
             else:
-                log.info(
-                    "   NOT available {available_pending}",
-                    available_pending=available_pending,
-                )
-    log.info("enumerated everything!")
-    remaining_mail = len(inbox.messages())
-    avail_pct = all_completed / (available_pending + all_completed + remaining_mail)
-    complete_pct = all_completed / (all_pending + all_completed)
-    return (avail_pct, complete_pct)
+                self.cache.pop(taskID, None)
+        if newAndUpdated:
+            self.updater.updateLoading(100.0)
+        self.lastUpdateTime = now
+        first = self.first
+        self.first = False
+        return first or bool(newAndUpdated)
+
+    def values(self) -> Sequence[SomeTask]:
+        return list(self.cache.values())
 
 
-async def updateOnceGuard(
-    rest: Callable[[], Awaitable[None]], updatePercentages: ProgressStatus
-) -> tuple[float, float]:
-    while True:
-        try:
-            return await updateOnce(rest, updatePercentages)
-        except CommandError as ce:
-            print(f"command error: {ce}")
-            await rest()
-            mail.launch()
-            omnifocus.launch()
+@dataclass
+class OFReader:
+    clock: IReactorTime
+    updatePercentages: ProgressStatus
+    cacher: Cacher
 
+    async def rest(self, length: float = 0.1) -> None:
+        await deferLater(self.clock, length)
 
-def query(reactor: object, updatePercentages: ProgressStatus) -> Deferred[None]:
-    clock = IReactorTime(reactor)
+    async def run(self) -> None:
 
-    async def rest() -> None:
-        await deferLater(clock, 0.1)
-
-    async def keepChecking() -> None:
         # print("Checking!")
         while True:
             # print("Resting!")
-            await rest()
+            await self.rest(1.0)
             # print("Computing!")
-            avail_pct, complete_pct = await updateOnceGuard(rest, updatePercentages)
+            result = await self.updateAndRetry()
             # print("Updating!")
-            updatePercentages.updateProgress(avail_pct, complete_pct)
+            if result is not None:
+                avail_pct, complete_pct = result
+                self.updatePercentages.updateProgress(avail_pct, complete_pct)
             # print("Updated!")
             # tn = time()
 
-    return Deferred.fromCoroutine(keepChecking()).addErrback(
+    async def updateAndRetry(self) -> tuple[float, float] | None:
+        while True:
+            try:
+                return await self.oneUpdate()
+            except CommandError as ce:
+                print(f"command error: {ce}")
+                await self.rest()
+                mail.launch()
+                omnifocus.launch()
+
+    async def oneUpdate(self) -> tuple[float, float] | None:
+        # t0 = time()
+
+        # print("constructing query")
+        # print("constructed")
+        pending = []
+        available_pending = 0.0
+        # wait for omnifocus to be in the background so we don't block its
+        # UI and make it unpleasant to use.
+        lastrep = 0.0
+
+        all_completed = 0.0
+        all_pending = 0.0
+        log.info("checking for changes")
+        anyChanges = await self.cacher.checkForUpdates()
+        log.info("changes: {changes}", changes=anyChanges)
+        if not anyChanges:
+            return None
+        reflist = self.cacher.values()
+        for i, each in enumerate(reflist):
+            pctdone = ((i + 1) / len(reflist)) * 100
+            if pctdone == 100.0 or (pctdone - lastrep >= 1.0):
+                lastrep = pctdone
+                log.info(
+                    "querying omnifocus {pctdone:0.1f}% done",
+                    pctdone=pctdone,
+                )
+            # await self.rest()
+            # print(f"revalidating {each.id()}: {expression(each, today, tomorrow)}")
+            if each.effectively_completed() or each.effectively_dropped():
+                all_completed += 1
+                log.info(
+                    "COMPLETED/DROPPED {name} {all_completed}",
+                    name=each.name(),
+                    all_completed=all_completed,
+                )
+            else:
+                pending.append(each)
+                log.info(
+                    "PENDING {name} {pending}",
+                    name=each.name(),
+                    pending=len(pending),
+                )
+                all_pending += 1
+                if available(each):
+                    log.info(
+                        "   available {available_pending}",
+                        available_pending=available_pending,
+                    )
+                    available_pending += 1
+                else:
+                    log.info(
+                        "   NOT available {available_pending}",
+                        available_pending=available_pending,
+                    )
+        log.info("enumerated everything!")
+        remaining_mail = len(inbox.messages())
+        avail_pct = all_completed / (available_pending + all_completed + remaining_mail)
+        complete_pct = all_completed / (all_pending + all_completed)
+        return (avail_pct, complete_pct)
+
+
+def query(reactor: object, progress: ProgressStatus) -> Deferred[None]:
+    async def setUpAndGo() -> None:
+        clock = IReactorTime(reactor)
+        cacher = await Cacher.new(clock, progress)
+        reader = OFReader(clock, progress, cacher)
+        await reader.run()
+
+    return Deferred.fromCoroutine(setUpAndGo()).addErrback(
         lambda f: log.failure("in omnifocus check loop", f)
     )
 
