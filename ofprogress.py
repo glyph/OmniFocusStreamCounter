@@ -46,7 +46,6 @@ class SomeTask(Protocol):
     blocked: AppScriptReference[bool]
     number_of_available_tasks: AppScriptReference[int]
 
-    # XXX doesn't work with caching yet
     tags: AppScriptReference[Iterable[SomeTag]]
 
     def properties(self) -> dict[Any, Any]: ...
@@ -64,7 +63,7 @@ def available(task: SomeTask) -> bool:
     # xxx this should be number of *remaining*, right?
     not_deferred = defer_date == k.missing_value or defer_date <= DateTime.now()
     parent_available = parent == k.missing_value or available(parent)
-    tags_available = True  # all(tag.allows_next_action() for tag in task.tags())
+    tags_available = all(tag.allows_next_action() for tag in task.tags())
     # print(
     #     f"""
     # checking task: {task.name()}
@@ -152,8 +151,11 @@ def expression(
 
 @dataclass
 class PropertyCache:
+    _ref: Any
+    _taskCache: dict[str, SomeTask]
+    _tagCache: dict[str, SomeTag]
     _properties: dict[object, Any]
-    _cached_parent_task: Any = None
+    _cachedTagRefs: list[Any] | None = None
 
     def __getattr__(self, name: str) -> Any:
         def get() -> Any:
@@ -164,28 +166,53 @@ class PropertyCache:
 
     def parent_task(self) -> Any:
         # do the same thing with tags?
-        if self._cached_parent_task is None:
-            ref = self._properties[k.parent_task]
-            if ref != k.missing_value:
-                ref = PropertyCache(ref.properties())
-            self._cached_parent_task = ref
-        return self._cached_parent_task
+        ref = self._properties[k.parent_task]
+        if ref == k.missing_value:
+            return ref
+        parentID = ref.id()
+        if parentID not in self._taskCache:
+            result: Any = PropertyCache(
+                ref, self._taskCache, self._tagCache, ref.properties()
+            )
+            self._taskCache[parentID] = result
+        return self._taskCache[parentID]
+
+    def tags(self) -> Sequence[SomeTag]:
+        if self._cachedTagRefs is None:
+            self._cachedTagRefs = self._ref.tags()
+        refs = self._cachedTagRefs
+        result = []
+        for ref in refs:
+            tagID = ref.id()
+            if tagID not in self._tagCache:
+                # ehhh close enough, parent_task is wrong but attr access
+                # should line up close enough.
+                newCachedTag: Any = PropertyCache(
+                    ref, self._taskCache, self._tagCache, ref.properties()
+                )
+                self._tagCache[tagID] = newCachedTag
+            result.append(self._tagCache[tagID])
+
+        return result
 
     def properties(self) -> dict[object, Any]:
         return self._properties
 
 
-def asPropertyCache(task: SomeTask) -> SomeTask:
-    result: Any = PropertyCache(task.properties())
+def asPropertyCache(
+    taskCache: dict[str, SomeTask], tagCache: dict[str, SomeTag], task: SomeTask
+) -> SomeTask:
+    result: Any = PropertyCache(task, taskCache, tagCache, task.properties())
     return result
 
 
 @dataclass
 class Cacher:
     clock: IReactorTime
-    cache: dict[str, SomeTask]  # map id to task
+    taskCache: dict[str, SomeTask]  # map id to task
     lastUpdateTime: DateTime[None]
     updater: ProgressStatus
+    tagCache: dict[str, SomeTag]  # map id to tag
     first: bool = True
 
     @classmethod
@@ -200,14 +227,15 @@ class Cacher:
         log.info("Initial load...")
         refList = e.get()
         log.info("Loaded!")
-        initialCache = {}
+        initialCache: dict[str, SomeTask] = {}
+        tagCache: dict[str, SomeTag] = {}
         for i, eachRef in enumerate(refList):
             updater.updateLoading(100 * (i / len(refList)))
             await deferLater(clock, 0.01)
-            cached = asPropertyCache(eachRef)
+            cached = asPropertyCache(initialCache, tagCache, eachRef)
             initialCache[cached.id()] = cached
 
-        return Cacher(clock, initialCache, now, updater)
+        return Cacher(clock, initialCache, now, updater, tagCache)
 
     async def checkForUpdates(self) -> bool:
         now = DateTime.now()
@@ -221,9 +249,11 @@ class Cacher:
             self.updater.updateLoading((i / len(newAndUpdated)) * 100)
             taskID = task.id()
             if expression(task, todayStart, tomorrowStart):
-                self.cache[taskID] = asPropertyCache(task)
+                self.taskCache[taskID] = asPropertyCache(
+                    self.taskCache, self.tagCache, task
+                )
             else:
-                self.cache.pop(taskID, None)
+                self.taskCache.pop(taskID, None)
         if newAndUpdated:
             self.updater.updateLoading(100.0)
         self.lastUpdateTime = now
@@ -232,7 +262,7 @@ class Cacher:
         return first or bool(newAndUpdated)
 
     def values(self) -> Sequence[SomeTask]:
-        return list(self.cache.values())
+        return list(self.taskCache.values())
 
 
 @dataclass
