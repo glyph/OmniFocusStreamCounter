@@ -169,8 +169,11 @@ class PropertyCache:
         ref = self._properties[k.parent_task]
         if ref == k.missing_value:
             return ref
-        parentID = ref.id()
+        # TODO: we already _got_ the .id() but appscript keeps it as private
+        # data, so we have to fish it out like this
+        parentID = ref.AS_aemreference._key
         if parentID not in self._taskCache:
+            log.info("cache miss for parent ID {tagID}", tagID=parentID)
             result: Any = PropertyCache(
                 ref, self._taskCache, self._tagCache, ref.properties()
             )
@@ -179,12 +182,16 @@ class PropertyCache:
 
     def tags(self) -> Sequence[SomeTag]:
         if self._cachedTagRefs is None:
+            # .id() is safe here because it's actually a cached string
+            log.info("cache miss for tags on {id}", id=self.id())
             self._cachedTagRefs = self._ref.tags()
         refs = self._cachedTagRefs
         result = []
         for ref in refs:
-            tagID = ref.id()
+            # see TODO in parent_task
+            tagID = ref.AS_aemreference._key
             if tagID not in self._tagCache:
+                log.info("cache miss for tag ID {tagID}", tagID=tagID)
                 # ehhh close enough, parent_task is wrong but attr access
                 # should line up close enough.
                 newCachedTag: Any = PropertyCache(
@@ -247,7 +254,8 @@ class Cacher:
         newAndUpdated = doc.flattened_tasks[its.modification_date > then]()
         for i, task in enumerate(newAndUpdated):
             self.updater.updateLoading((i / len(newAndUpdated)) * 100)
-            taskID = task.id()
+            # see TODO above in parent_task
+            taskID = task.AS_aemreference._key
             if expression(task, todayStart, tomorrowStart):
                 self.taskCache[taskID] = asPropertyCache(
                     self.taskCache, self.tagCache, task
@@ -326,34 +334,36 @@ class OFReader:
                     "querying omnifocus {pctdone:0.1f}% done",
                     pctdone=pctdone,
                 )
+                self.updatePercentages.updateLoading(pctdone)
+                await self.rest(0.01)
             # await self.rest()
             # print(f"revalidating {each.id()}: {expression(each, today, tomorrow)}")
             if each.effectively_completed() or each.effectively_dropped():
                 all_completed += 1
-                log.info(
-                    "COMPLETED/DROPPED {name} {all_completed}",
-                    name=each.name(),
-                    all_completed=all_completed,
-                )
+                # log.info(
+                #     "COMPLETED/DROPPED {name} {all_completed}",
+                #     name=each.name(),
+                #     all_completed=all_completed,
+                # )
             else:
                 pending.append(each)
-                log.info(
-                    "PENDING {name} {pending}",
-                    name=each.name(),
-                    pending=len(pending),
-                )
+                # log.info(
+                #     "PENDING “{name}” ({pending})",
+                #     name=each.name(),
+                #     pending=len(pending),
+                # )
                 all_pending += 1
                 if available(each):
-                    log.info(
-                        "   available {available_pending}",
-                        available_pending=available_pending,
-                    )
+                    # log.info(
+                    #     "   available {available_pending}",
+                    #     available_pending=available_pending,
+                    # )
                     available_pending += 1
-                else:
-                    log.info(
-                        "   NOT available {available_pending}",
-                        available_pending=available_pending,
-                    )
+                # else:
+                #     log.info(
+                #         "   NOT available {available_pending}",
+                #         available_pending=available_pending,
+                #     )
         log.info("enumerated everything!")
         remaining_mail = len(inbox.messages())
         avail_pct = all_completed / (available_pending + all_completed + remaining_mail)
