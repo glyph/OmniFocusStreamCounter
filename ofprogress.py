@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import time, timedelta
 from typing import Any, Iterable, Protocol, Sequence
 
@@ -17,6 +17,9 @@ doc = omnifocus.documents[0].get()
 
 mail = app("mail")
 inbox = mail.accounts["Fastmail"]().mailboxes["INBOX"]
+
+# TODO: account for untriaged omnifocus inbox
+# TODO: detect tombstones (scan Cacher.valued for dead IDs)
 
 
 class AppScriptReference[T](Protocol):
@@ -177,6 +180,9 @@ class PropertyCache:
             result: Any = PropertyCache(
                 ref, self._taskCache, self._tagCache, ref.properties()
             )
+            # TODO: if the parent task doesn't match the expression, we store
+            # it in the cache anyway, and that's bad, because it results in a
+            # too-large denominator
             self._taskCache[parentID] = result
         return self._taskCache[parentID]
 
@@ -221,6 +227,7 @@ class Cacher:
     updater: ProgressStatus
     tagCache: dict[str, SomeTag]  # map id to tag
     first: bool = True
+    valued: set[str] = field(default_factory=set)
 
     @classmethod
     async def new(cls, clock: IReactorTime, updater: ProgressStatus) -> Cacher:
@@ -236,13 +243,15 @@ class Cacher:
         log.info("Loaded!")
         initialCache: dict[str, SomeTask] = {}
         tagCache: dict[str, SomeTag] = {}
+        valued = set()
         for i, eachRef in enumerate(refList):
             updater.updateLoading(100 * (i / len(refList)))
             await deferLater(clock, 0.01)
             cached = asPropertyCache(initialCache, tagCache, eachRef)
             initialCache[cached.id()] = cached
+            valued.add(cached.id())
 
-        return Cacher(clock, initialCache, now, updater, tagCache)
+        return Cacher(clock, initialCache, now, updater, tagCache, valued=valued)
 
     async def checkForUpdates(self) -> bool:
         now = DateTime.now()
@@ -256,12 +265,13 @@ class Cacher:
             self.updater.updateLoading((i / len(newAndUpdated)) * 100)
             # see TODO above in parent_task
             taskID = task.AS_aemreference._key
+            self.taskCache[taskID] = asPropertyCache(
+                self.taskCache, self.tagCache, task
+            )
             if expression(task, todayStart, tomorrowStart):
-                self.taskCache[taskID] = asPropertyCache(
-                    self.taskCache, self.tagCache, task
-                )
+                self.valued.add(taskID)
             else:
-                self.taskCache.pop(taskID, None)
+                self.valued.discard(taskID)
         if newAndUpdated:
             self.updater.updateLoading(100.0)
         self.lastUpdateTime = now
@@ -270,7 +280,7 @@ class Cacher:
         return first or bool(newAndUpdated)
 
     def values(self) -> Sequence[SomeTask]:
-        return list(self.taskCache.values())
+        return [self.taskCache[eachID] for eachID in self.valued]
 
 
 @dataclass
@@ -330,7 +340,9 @@ class OFReader:
         for i, each in enumerate(reflist):
             pctdone = ((i + 1) / len(reflist)) * 100
             newtime = self.clock.seconds()
-            if pctdone == 100.0 or ((pctdone - lastrep >= 1.0) and ((newtime - pcttime) > 0.1)):
+            if pctdone == 100.0 or (
+                (pctdone - lastrep >= 1.0) and ((newtime - pcttime) > 0.1)
+            ):
                 pcttime = newtime
                 lastrep = pctdone
                 log.info(
