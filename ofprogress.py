@@ -228,6 +228,9 @@ class Cacher:
     tagCache: dict[str, SomeTag]  # map id to tag
     first: bool = True
     valued: set[str] = field(default_factory=set)
+    "set of task IDs that match the relevance predicate"
+    deletionDetector: set[str] = field(default_factory=set)
+    "set of task IDs that we are iterating through to check liveness"
 
     @classmethod
     async def new(cls, clock: IReactorTime, updater: ProgressStatus) -> Cacher:
@@ -272,12 +275,26 @@ class Cacher:
                 self.valued.add(taskID)
             else:
                 self.valued.discard(taskID)
+        deletionsDetected = False
+        for n in range(5):
+            if not self.deletionDetector:
+                self.deletionDetector |= self.valued
+            toCheckID = self.deletionDetector.pop()
+            log.info("checking ID for {toCheckID}", toCheckID=toCheckID)
+            try:
+                doc.flattened_tasks.ID(toCheckID).get()
+            except CommandError:
+                log.info("ID {toCheckID} removed", toCheckID=toCheckID)
+                self.valued.discard(toCheckID)
+                deletionsDetected = True
+            else:
+                log.info("ID check {toCheckID} OK", toCheckID=toCheckID)
         if newAndUpdated:
             self.updater.updateLoading(100.0)
         self.lastUpdateTime = now
         first = self.first
         self.first = False
-        return first or bool(newAndUpdated)
+        return first or bool(newAndUpdated) or deletionsDetected
 
     def values(self) -> Sequence[SomeTask]:
         return [self.taskCache[eachID] for eachID in self.valued]
