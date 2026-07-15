@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import time, timedelta
-from typing import Any, Iterable, Protocol, Sequence
+from typing import Any, Callable, Iterable, Protocol, Sequence, Self
+import operator
 
 from appscript import CommandError, Reference, app, its, k
 from datetype import DateTime, naive
@@ -22,13 +23,20 @@ inbox = mail.accounts["Fastmail"]().mailboxes["INBOX"]
 # TODO: detect tombstones (scan Cacher.valued for dead IDs)
 
 
+class AppScriptExpression[T](Protocol):
+    def __lt__(self, other: object) -> AppScriptExpression: ...
+    def __eq__(self, other: object) -> AppScriptExpression: ...  # type:ignore[override]
+    def __ge__(self, other: object) -> AppScriptExpression: ...
+    def OR(self, other: AppScriptReference[T] | T) -> AppScriptExpression: ...
+    def AND(self, other: AppScriptReference[T] | T) -> AppScriptExpression: ...
+
+
 class AppScriptReference[T](Protocol):
     def __call__(self) -> T: ...
-    def __lt__(self, other: T) -> AppScriptReference[bool]: ...
-    def __ge__(self, other: T) -> AppScriptReference[bool]: ...
-    def OR(self, other: AppScriptReference[T] | T) -> AppScriptReference[bool]: ...
-    def AND(self, other: AppScriptReference[T] | T) -> AppScriptReference[bool]: ...
     def get(self) -> T: ...
+    def __lt__(self, other: object) -> AppScriptExpression: ...
+    def __ge__(self, other: object) -> AppScriptExpression: ...
+    def __eq__(self, other: object) -> AppScriptExpression: ...  # type:ignore[override]
 
 
 class SomeTag(Protocol):
@@ -131,25 +139,58 @@ def either[T](a: AppScriptReference[T]) -> AppScriptReference[T] | Nope:
 
 def expression(
     what: SomeTask, today: DateTime[None], tomorrow: DateTime[None]
-) -> AppScriptReference[bool] | bool:
-    return OR(
+) -> AppScriptExpression[bool]:
+    return (
         (
-            AND(
-                AND(
-                    OR(
-                        (either(what.effective_due_date) < tomorrow),
-                        (either(what.effective_planned_date) < tomorrow),
-                    ),
-                    (either(what.effectively_completed) == False),
-                ),
-                (either(what.effectively_dropped) == False),
+            (
+                (
+                    ((what.effective_due_date) < tomorrow).OR(
+                        ((what.effective_planned_date) < tomorrow)
+                    )
+                ).AND((what.effectively_completed) == False)
+            ).AND(
+                ((what.effectively_dropped) == False),
             )
-        ),
-        OR(
-            (either(what.completion_date) >= today),
-            (either(what.dropped_date) >= today),
-        ),
-    )
+        )
+    ).OR((((what.completion_date) >= today).OR(((what.dropped_date) >= today))))
+
+
+@dataclass
+class Expression[A, B]:
+    _left: A
+    _op: Callable[[A, B], bool]
+    _right: B
+
+    def OR[C](self, other: C) -> Expression[Self, C]:
+        return Expression(
+            self,
+            operator.and_,
+            other,
+        )
+
+    def AND[C](self, other: C) -> Expression[Self, C]:
+        return Expression(
+            self,
+            operator.and_,
+            other,
+        )
+
+
+@dataclass
+class CachedReference[T]:
+    get: Callable[[], T]
+
+    def __call__(self) -> T:
+        return self.get()
+
+    def __lt___(self, other: T) -> Expression:
+        return Expression(self, operator.lt, other)
+
+    def __ge___(self, other: T) -> Expression:
+        return Expression(self, operator.ge, other)
+
+    def __eq__(self, other: T) -> Expression:
+        return Expression(self, operator.eq, other)
 
 
 @dataclass
@@ -160,12 +201,8 @@ class PropertyCache:
     _properties: dict[object, Any]
     _cachedTagRefs: list[Any] | None = None
 
-    def __getattr__(self, name: str) -> Any:
-        def get() -> Any:
-            result = self._properties[getattr(k, name)]
-            return result
-
-        return get
+    def __getattr__(self, name: str) -> AppScriptReference[Any]:
+        return CachedReference(lambda: self._properties[getattr(k, name)])
 
     def parent_task(self) -> Any:
         # do the same thing with tags?
