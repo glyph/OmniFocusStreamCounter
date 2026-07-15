@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import time, timedelta
-from typing import Any, Callable, Iterable, Protocol, Sequence, Self
+from typing import Any, Callable, Sequence
 import operator
 
-from appscript import CommandError, Reference, app, its, k
+from appscript import CommandError, app, its, k
 from datetype import DateTime, naive
 from twisted.internet.defer import Deferred
 from twisted.internet.interfaces import IReactorTime
 from twisted.internet.task import deferLater
 from twisted.logger import Logger, textFileLogObserver
+
+from oftypes import AppScriptReference, ProgressStatus, SomeTask, SomeTag
 
 omnifocus = app("omnifocus")
 log = Logger()
@@ -21,45 +23,6 @@ inbox = mail.accounts["Fastmail"]().mailboxes["INBOX"]
 
 # TODO: account for untriaged omnifocus inbox
 # TODO: detect tombstones (scan Cacher.valued for dead IDs)
-
-
-class AppScriptExpression[T](Protocol):
-    def __lt__(self, other: object) -> AppScriptExpression: ...
-    def __eq__(self, other: object) -> AppScriptExpression: ...  # type:ignore[override]
-    def __ge__(self, other: object) -> AppScriptExpression: ...
-    def OR(self, other: AppScriptReference[T] | T) -> AppScriptExpression: ...
-    def AND(self, other: AppScriptReference[T] | T) -> AppScriptExpression: ...
-
-
-class AppScriptReference[T](Protocol):
-    def __call__(self) -> T: ...
-    def get(self) -> T: ...
-    def __lt__(self, other: object) -> AppScriptExpression: ...
-    def __ge__(self, other: object) -> AppScriptExpression: ...
-    def __eq__(self, other: object) -> AppScriptExpression: ...  # type:ignore[override]
-
-
-class SomeTag(Protocol):
-    allows_next_action: AppScriptReference[bool]
-
-
-class SomeTask(Protocol):
-    name: AppScriptReference[str]
-    id: AppScriptReference[str]
-    effective_due_date: AppScriptReference[DateTime[None]]
-    effectively_completed: AppScriptReference[bool]
-    effectively_dropped: AppScriptReference[bool]
-    completion_date: AppScriptReference[DateTime[None]]
-    dropped_date: AppScriptReference[DateTime[None]]
-    effective_defer_date: AppScriptReference[DateTime[None]]
-    effective_planned_date: AppScriptReference[DateTime[None]]
-    parent_task: AppScriptReference[SomeTask]
-    blocked: AppScriptReference[bool]
-    number_of_available_tasks: AppScriptReference[int]
-
-    tags: AppScriptReference[Iterable[SomeTag]]
-
-    def properties(self) -> dict[Any, Any]: ...
 
 
 def available(task: SomeTask) -> bool:
@@ -85,112 +48,6 @@ def available(task: SomeTask) -> bool:
     # """
     # )
     return unblocked and not_deferred and parent_available and tags_available
-
-
-class ProgressStatus(Protocol):
-    def updateLoading(self, loadedPercent: float) -> None:
-        "the next refresh is C{loadedPercent} done loading"
-
-    def updateProgress(
-        self,
-        availablePercent: float,
-        completePercent: float,
-    ) -> None:
-        "we are availablePercent through the day"
-
-
-def AND(
-    a: AppScriptReference[Any] | bool, b: AppScriptReference[Any] | bool
-) -> AppScriptReference[bool] | bool:
-    operator = getattr(a, "AND", None)
-    if operator is None:
-        return bool(a and b)
-    else:
-        return operator(b)
-
-
-def OR(
-    a: AppScriptReference[Any] | bool, b: AppScriptReference[Any] | bool
-) -> AppScriptReference[bool] | bool:
-    operator = getattr(a, "OR", None)
-    if operator is None:
-        return bool(a or b)
-    else:
-        return operator(b)
-
-
-class Nope:
-    def __lt__(self, other: object) -> bool:
-        return False
-
-    def __ge__(self, other: object) -> bool:
-        return False
-
-
-def either[T](a: AppScriptReference[T]) -> AppScriptReference[T] | Nope:
-    if isinstance(a, Reference):
-        result = a.get()
-        if result == k.missing_value:
-            return Nope()
-        return result
-    else:
-        return a
-
-
-def expression(
-    what: SomeTask, today: DateTime[None], tomorrow: DateTime[None]
-) -> AppScriptExpression[bool]:
-    return (
-        (
-            (
-                (
-                    ((what.effective_due_date) < tomorrow).OR(
-                        ((what.effective_planned_date) < tomorrow)
-                    )
-                ).AND((what.effectively_completed) == False)
-            ).AND(
-                ((what.effectively_dropped) == False),
-            )
-        )
-    ).OR((((what.completion_date) >= today).OR(((what.dropped_date) >= today))))
-
-
-@dataclass
-class Expression[A, B]:
-    _left: A
-    _op: Callable[[A, B], bool]
-    _right: B
-
-    def OR[C](self, other: C) -> Expression[Self, C]:
-        return Expression(
-            self,
-            operator.and_,
-            other,
-        )
-
-    def AND[C](self, other: C) -> Expression[Self, C]:
-        return Expression(
-            self,
-            operator.and_,
-            other,
-        )
-
-
-@dataclass
-class CachedReference[T]:
-    get: Callable[[], T]
-
-    def __call__(self) -> T:
-        return self.get()
-
-    def __lt___(self, other: T) -> Expression:
-        return Expression(self, operator.lt, other)
-
-    def __ge___(self, other: T) -> Expression:
-        return Expression(self, operator.ge, other)
-
-    def __eq__(self, other: T) -> Expression:
-        return Expression(self, operator.eq, other)
 
 
 @dataclass
