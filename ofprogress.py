@@ -11,9 +11,9 @@ from twisted.internet.interfaces import IReactorTime
 from twisted.internet.task import deferLater
 from twisted.logger import Logger, textFileLogObserver
 
-from ofcache import CachedReference
-from oftypes import AppScriptReference, ProgressStatus, SomeTask, SomeTag
-from ofexpr import expression
+from ofcache import asPropertyCache
+from ofexpr import availableTaskExpr
+from oftypes import AppScriptReference, ProgressStatus, SomeTag, SomeTask
 
 omnifocus = app("omnifocus")
 log = Logger()
@@ -71,7 +71,7 @@ class Cacher:
         todayStart = DateTime.combine(today, naive(time.min))
         tomorrowStart = todayStart + timedelta(days=1)
         e: AppScriptReference[Sequence[SomeTask]] = doc.flattened_tasks[
-            expression(its, todayStart, tomorrowStart)
+            availableTaskExpr(its, todayStart, tomorrowStart)
         ]
         log.info("Initial load...")
         refList = e.get()
@@ -103,7 +103,7 @@ class Cacher:
             self.taskCache[taskID] = asPropertyCache(
                 self.taskCache, self.tagCache, task
             )
-            if expression(task, todayStart, tomorrowStart):
+            if availableTaskExpr(task, todayStart, tomorrowStart):
                 self.valued.add(taskID)
             else:
                 self.valued.discard(taskID)

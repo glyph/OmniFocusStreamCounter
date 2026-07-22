@@ -2,7 +2,7 @@ from datetype import DateTime
 
 from oftypes import AppScriptExpression, SomeTask
 
-def expression(
+def availableTaskExpr(
     what: SomeTask, today: DateTime[None], tomorrow: DateTime[None]
 ) -> AppScriptExpression:
     return (
