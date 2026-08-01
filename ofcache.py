@@ -26,7 +26,7 @@ class PropertyCache:
     _cachedTagRefs: list[Any] | None = None
 
     def __getattr__(self, name: str) -> AbstractReference[Any]:
-        return CachedReference(lambda: self._properties[getattr(k, name)])
+        return CachedReference(name, lambda: self._properties[getattr(k, name)])
 
     def parent_task(self) -> SomeTask:
         ref = self._properties[k.parent_task]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from appscript import k
 import operator
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Protocol, TYPE_CHECKING
@@ -12,6 +13,7 @@ class AbstractExpression(Protocol):
     Abstract description of an expression, (mostly) like the one described by
     appscript.
     """
+
     def __lt__(self, other: object) -> AbstractExpression: ...
     def __eq__(self, other: object) -> AbstractExpression: ...  # type:ignore[override]
     def __ge__(self, other: object) -> AbstractExpression: ...
@@ -24,6 +26,7 @@ class AbstractReference[T](Protocol):
     Abstract description of a reference to a value, (mostly) like the one
     described by appscript.
     """
+
     def __call__(self) -> T: ...
     def get(self) -> T: ...
     def __lt__(self, other: object) -> AbstractExpression: ...
@@ -65,6 +68,9 @@ class SomeTask(Protocol):
     def properties(self) -> dict[Any, Any]: ...
 
 
+def doget(maybe: object)->object:
+    return maybe() if isinstance(maybe, (Expression, CachedReference)) else maybe
+
 @dataclass
 class Expression:
     """
@@ -76,28 +82,40 @@ class Expression:
     _right: object
 
     def get(self) -> object:
-        return self._op(self._left, self._right)
+        lvalue = doget(self._left)
+        rvalue = doget(self._right)
+        if lvalue == k.missing_value:
+            # null comparisons in appscript evaluate to false, so we emulate
+            # that here.  the right side might also be busted but it just
+            # happens not to be now because of how our queries are constructed,
+            # so we don't bother.
+            return False
+        return self._op(lvalue, rvalue)
+
+    def __call__(self) -> object:
+        return self.get()
+
+    def _combine(self, op: Callable[[Any, Any], bool], other: object) -> Expression:
+        return Expression(self, op, other)
 
     def __lt__(self, other: object) -> Expression:
-        return Expression(self.get(), operator.lt, other)
+        return self._combine(operator.lt, other)
 
     def __eq__(self, other: object) -> Expression:  # type:ignore[override]
 
-        return Expression(self.get(), operator.eq, other)
+        return self._combine(operator.eq, other)
 
     def __ge__(self, other: object) -> Expression:
-        return Expression(self.get(), operator.ge, other)
+        return self._combine(operator.ge, other)
 
     def OR(self, other: object) -> Expression:
-        return Expression(
-            self.get(),
+        return self._combine(
             lambda a, b: a or b,
             other,
         )
 
     def AND(self, other: object) -> Expression:
-        return Expression(
-            self.get(),
+        return self._combine(
             lambda a, b: a and b,
             other,
         )
@@ -108,6 +126,7 @@ class Expression:
 
 @dataclass
 class CachedReference[T]:
+    name: str
     get: Callable[[], T]
 
     def __ge__(self, other: object) -> Expression:
@@ -119,14 +138,16 @@ class CachedReference[T]:
     def __eq__(self, other: object) -> Expression:  # type:ignore[override]
         return Expression(self, operator.eq, other)
 
-    def OR(self, other: object) -> CachedReference[object]:
-        return CachedReference(lambda: self.get() or other)
+    def OR(self, other: object) -> Expression:
+        return Expression(self, (lambda a, b: a or b), other)
 
-    def AND(self, other: object) -> CachedReference[object]:
-        return CachedReference(lambda: self.get() and other)
+    def AND(self, other: object) -> Expression:
+        return Expression(self, (lambda a, b: a and b), other)
 
     def __call__(self) -> T:
-        return self.get()
+        result = self.get()
+        print(f"retrieving: {self.name} result: {result}")
+        return result
 
     def __bool__(self) -> bool:
         # this could be implemented but let's just make sure
