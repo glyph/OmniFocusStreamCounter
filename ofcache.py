@@ -65,6 +65,8 @@ def fromRef[T: SomeTask | SomeTag](
     overwrite: bool = False,
 ) -> T:
     someID = ref.AS_aemreference._key
+    if type(someID) == bytes:
+        someID = ref.id()
     if overwrite or someID not in someCache:
         log.info("cache miss for {someType} {someID}", someType=someType, someID=someID)
         newCache: T = PropertyCache(  # type:ignore[assignment]
