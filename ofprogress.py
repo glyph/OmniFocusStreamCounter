@@ -13,7 +13,7 @@ from twisted.logger import Logger, textFileLogObserver
 
 from ofcache import asPropertyCache
 from ofexpr import availableTaskExpr
-from oftypes import AppScriptReference, ProgressStatus, SomeTag, SomeTask
+from oftypes import AbstractReference, ProgressStatus, SomeTag, SomeTask
 
 omnifocus = app("omnifocus")
 log = Logger()
@@ -70,7 +70,7 @@ class Cacher:
         today = now.date()
         todayStart = DateTime.combine(today, naive(time.min))
         tomorrowStart = todayStart + timedelta(days=1)
-        e: AppScriptReference[Sequence[SomeTask]] = doc.flattened_tasks[
+        e: AbstractReference[Sequence[SomeTask]] = doc.flattened_tasks[
             availableTaskExpr(its, todayStart, tomorrowStart)
         ]
         log.info("Initial load...")

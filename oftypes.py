@@ -1,22 +1,34 @@
 from __future__ import annotations
-from typing import Protocol, Iterable, Any
+
+import operator
+from dataclasses import dataclass
+from typing import Any, Callable, Iterable, Protocol, TYPE_CHECKING
+
 from datetype import DateTime
 
 
-class AppScriptExpression[T](Protocol):
-    def __lt__(self, other: object) -> AppScriptExpression: ...
-    def __eq__(self, other: object) -> AppScriptExpression: ...  # type:ignore[override]
-    def __ge__(self, other: object) -> AppScriptExpression: ...
-    def OR(self, other: AppScriptReference[T] | T) -> AppScriptExpression: ...
-    def AND(self, other: AppScriptReference[T] | T) -> AppScriptExpression: ...
+class AbstractExpression(Protocol):
+    """
+    Abstract description of an expression, (mostly) like the one described by
+    appscript.
+    """
+    def __lt__(self, other: object) -> AbstractExpression: ...
+    def __eq__(self, other: object) -> AbstractExpression: ...  # type:ignore[override]
+    def __ge__(self, other: object) -> AbstractExpression: ...
+    def OR(self, other: object) -> AbstractExpression: ...
+    def AND(self, other: object) -> AbstractExpression: ...
 
 
-class AppScriptReference[T](Protocol):
+class AbstractReference[T](Protocol):
+    """
+    Abstract description of a reference to a value, (mostly) like the one
+    described by appscript.
+    """
     def __call__(self) -> T: ...
     def get(self) -> T: ...
-    def __lt__(self, other: object) -> AppScriptExpression: ...
-    def __ge__(self, other: object) -> AppScriptExpression: ...
-    def __eq__(self, other: object) -> AppScriptExpression: ...  # type:ignore[override]
+    def __lt__(self, other: object) -> AbstractExpression: ...
+    def __ge__(self, other: object) -> AbstractExpression: ...
+    def __eq__(self, other: object) -> AbstractExpression: ...  # type:ignore[override]
 
 
 class ProgressStatus(Protocol):
@@ -32,25 +44,92 @@ class ProgressStatus(Protocol):
 
 
 class SomeTag(Protocol):
-    allows_next_action: AppScriptReference[bool]
+    allows_next_action: AbstractReference[bool]
 
 
 class SomeTask(Protocol):
-    name: AppScriptReference[str]
-    id: AppScriptReference[str]
-    effective_due_date: AppScriptReference[DateTime[None]]
-    effectively_completed: AppScriptReference[bool]
-    effectively_dropped: AppScriptReference[bool]
-    completion_date: AppScriptReference[DateTime[None]]
-    dropped_date: AppScriptReference[DateTime[None]]
-    effective_defer_date: AppScriptReference[DateTime[None]]
-    effective_planned_date: AppScriptReference[DateTime[None]]
-    parent_task: AppScriptReference[SomeTask]
-    blocked: AppScriptReference[bool]
-    number_of_available_tasks: AppScriptReference[int]
-
-    tags: AppScriptReference[Iterable[SomeTag]]
+    name: AbstractReference[str]
+    id: AbstractReference[str]
+    effective_due_date: AbstractReference[DateTime[None]]
+    effectively_completed: AbstractReference[bool]
+    effectively_dropped: AbstractReference[bool]
+    completion_date: AbstractReference[DateTime[None]]
+    dropped_date: AbstractReference[DateTime[None]]
+    effective_defer_date: AbstractReference[DateTime[None]]
+    effective_planned_date: AbstractReference[DateTime[None]]
+    parent_task: AbstractReference[SomeTask]
+    blocked: AbstractReference[bool]
+    number_of_available_tasks: AbstractReference[int]
+    tags: AbstractReference[Iterable[SomeTag]]
 
     def properties(self) -> dict[Any, Any]: ...
 
 
+@dataclass
+class Expression:
+    """
+    concrete local/cached expression
+    """
+
+    _left: object
+    _op: Callable[[Any, Any], bool]
+    _right: object
+
+    def get(self) -> object:
+        return self._op(self._left, self._right)
+
+    def __lt__(self, other: object) -> Expression:
+        return Expression(self.get(), operator.lt, other)
+
+    def __eq__(self, other: object) -> Expression:  # type:ignore[override]
+
+        return Expression(self.get(), operator.eq, other)
+
+    def __ge__(self, other: object) -> Expression:
+        return Expression(self.get(), operator.ge, other)
+
+    def OR(self, other: object) -> Expression:
+        return Expression(
+            self,
+            operator.or_,
+            other,
+        )
+
+    def AND(self, other: object) -> Expression:
+        return Expression(
+            self,
+            operator.and_,
+            other,
+        )
+
+
+@dataclass
+class CachedReference[T]:
+    get: Callable[[], T]
+
+    def __ge__(self, other: object) -> Expression:
+        return Expression(self, operator.ge, other)
+
+    def __lt__(self, other: object) -> Expression:
+        return Expression(self, operator.lt, other)
+
+    def __eq__(self, other: object) -> Expression:  # type:ignore[override]
+        return Expression(self, operator.eq, other)
+
+    def OR(self, other: object) -> CachedReference[object]:
+        return CachedReference(lambda: self.get() or other)
+
+    def AND(self, other: object) -> CachedReference[object]:
+        return CachedReference(lambda: self.get() and other)
+
+    def __call__(self) -> T:
+        return self.get()
+
+
+if TYPE_CHECKING:
+    x: Any = object()
+    a: Expression = x
+    b: AbstractExpression
+    b = a
+    cached: CachedReference[Any] = x
+    c: AbstractReference[Any] = cached

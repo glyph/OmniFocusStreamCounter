@@ -1,52 +1,14 @@
 from __future__ import annotations
 
-import operator
 from dataclasses import dataclass
-from typing import Any, Callable, Sequence
+from typing import Any, Sequence
 
 from appscript import k
 from twisted.logger import Logger
 
-from oftypes import AppScriptReference, SomeTag, SomeTask
+from oftypes import AbstractReference, SomeTag, SomeTask, CachedReference
 
 log = Logger()
-
-@dataclass
-class Expression[A, B]:
-    _left: A
-    _op: Callable[[A, B], bool]
-    _right: B
-
-    def OR[C](self, other: C) -> Expression[Expression[A, B], C]:
-        return Expression(
-            self,
-            operator.and_,
-            other,
-        )
-
-    def AND[C](self, other: C) -> Expression[Expression[A, B], C]:
-        return Expression(
-            self,
-            operator.and_,
-            other,
-        )
-
-
-@dataclass
-class CachedReference[T]:
-    get: Callable[[], T]
-
-    def __call__(self) -> T:
-        return self.get()
-
-    def __lt___(self, other: T) -> Expression:
-        return Expression(self, operator.lt, other)
-
-    def __ge___(self, other: T) -> Expression:
-        return Expression(self, operator.ge, other)
-
-    def __eq__(self, other: T) -> Expression:  # type:ignore[override]
-        return Expression(self, operator.eq, other)
 
 
 @dataclass
@@ -57,10 +19,10 @@ class PropertyCache:
     _properties: dict[object, Any]
     _cachedTagRefs: list[Any] | None = None
 
-    def __getattr__(self, name: str) -> AppScriptReference[Any]:
+    def __getattr__(self, name: str) -> AbstractReference[Any]:
         return CachedReference(lambda: self._properties[getattr(k, name)])
 
-    def parent_task(self) -> Any:
+    def parent_task(self) -> SomeTask:
         # do the same thing with tags?
         ref = self._properties[k.parent_task]
         if ref == k.missing_value:
@@ -110,5 +72,3 @@ def asPropertyCache(
 ) -> SomeTask:
     result: Any = PropertyCache(task, taskCache, tagCache, task.properties())
     return result
-
-
