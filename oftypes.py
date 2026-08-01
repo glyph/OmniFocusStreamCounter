@@ -102,6 +102,9 @@ class Expression:
             other,
         )
 
+    def __bool__(self) -> bool:
+        return bool(self.get())
+
 
 @dataclass
 class CachedReference[T]:
@@ -124,6 +127,10 @@ class CachedReference[T]:
 
     def __call__(self) -> T:
         return self.get()
+
+    def __bool__(self) -> bool:
+        # this could be implemented but let's just make sure
+        raise NotImplementedError("evaluations should be via Expression probably")
 
 
 if TYPE_CHECKING:
