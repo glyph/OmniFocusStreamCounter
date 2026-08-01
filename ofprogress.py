@@ -100,26 +100,22 @@ class Cacher:
         tomorrowStart = todayStart + timedelta(days=1)
         then = self.lastUpdateTime
         newAndUpdated = doc.flattened_tasks[its.modification_date > then]()
+        newCachedTasks = []
         for i, taskRef in enumerate(newAndUpdated):
             self.updater.updateLoading((i / len(newAndUpdated)) * 100)
-            cachedTask = fromRef(
-                taskRef,
-                "updated task",
-                self.taskCache,
-                self.taskCache,
-                self.tagCache,
-                overwrite=True,
+            newCachedTasks.append(
+                fromRef(
+                    taskRef,
+                    "updated task",
+                    self.taskCache,
+                    self.taskCache,
+                    self.tagCache,
+                    overwrite=True,
+                )
             )
+        for cachedTask in newCachedTasks:
             taskID = cachedTask.id()
-            # FIXME: a task and its parent may be updated at the same time (and
-            # in fact quite often will, via effectively_completed etc), which
-            # would cause a self-data-race here when evaluating whether we
-            # still match a given availability predicate, because we might not
-            # have updated the parent yet.  Fix this to do all the cache
-            # updates *first* and then do the availability filtering (maybe
-            # explicitly marking children as needing re-evaluation for any
-            # parents?).
-            if availableTaskExpr(taskRef, todayStart, tomorrowStart):
+            if availableTaskExpr(cachedTask, todayStart, tomorrowStart):
                 self.valued.add(taskID)
             else:
                 self.valued.discard(taskID)
