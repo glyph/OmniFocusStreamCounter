@@ -91,14 +91,14 @@ class Expression:
     def OR(self, other: object) -> Expression:
         return Expression(
             self,
-            operator.or_,
+            lambda a, b: a or b,
             other,
         )
 
     def AND(self, other: object) -> Expression:
         return Expression(
             self,
-            operator.and_,
+            lambda a, b: a and b,
             other,
         )
 
