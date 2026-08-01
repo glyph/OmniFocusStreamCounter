@@ -11,7 +11,7 @@ from twisted.internet.interfaces import IReactorTime
 from twisted.internet.task import deferLater
 from twisted.logger import Logger, textFileLogObserver
 
-from ofcache import asPropertyCache
+from ofcache import asPropertyCache, fromRef
 from ofexpr import availableTaskExpr
 from oftypes import AbstractReference, ProgressStatus, SomeTag, SomeTask
 
@@ -60,7 +60,11 @@ class Cacher:
     tagCache: dict[str, SomeTag]  # map id to tag
     first: bool = True
     valued: set[str] = field(default_factory=set)
-    "set of task IDs that match the relevance predicate"
+    """
+    set of task IDs that match the relevance predicate.
+
+    the relevance predicate is 'stuff that is available'
+    """
     deletionDetector: set[str] = field(default_factory=set)
     "set of task IDs that we are iterating through to check liveness"
 
@@ -96,14 +100,26 @@ class Cacher:
         tomorrowStart = todayStart + timedelta(days=1)
         then = self.lastUpdateTime
         newAndUpdated = doc.flattened_tasks[its.modification_date > then]()
-        for i, task in enumerate(newAndUpdated):
+        for i, taskRef in enumerate(newAndUpdated):
             self.updater.updateLoading((i / len(newAndUpdated)) * 100)
-            # see TODO above in parent_task
-            taskID = task.AS_aemreference._key
-            self.taskCache[taskID] = asPropertyCache(
-                self.taskCache, self.tagCache, task
+            cachedTask = fromRef(
+                taskRef,
+                "updated task",
+                self.taskCache,
+                self.taskCache,
+                self.tagCache,
+                overwrite=True,
             )
-            if availableTaskExpr(task, todayStart, tomorrowStart):
+            taskID = cachedTask.id()
+            # FIXME: a task and its parent may be updated at the same time (and
+            # in fact quite often will, via effectively_completed etc), which
+            # would cause a self-data-race here when evaluating whether we
+            # still match a given availability predicate, because we might not
+            # have updated the parent yet.  Fix this to do all the cache
+            # updates *first* and then do the availability filtering (maybe
+            # explicitly marking children as needing re-evaluation for any
+            # parents?).
+            if availableTaskExpr(taskRef, todayStart, tomorrowStart):
                 self.valued.add(taskID)
             else:
                 self.valued.discard(taskID)

@@ -13,6 +13,12 @@ log = Logger()
 
 @dataclass
 class PropertyCache:
+    """
+    A L{PropertyCache} is a cached version of the data in an appscript
+    reference, derived from its C{properties()}, to avoid doing (slow)
+    AppleEvent round trips to retrieve each property as a method call.
+    """
+
     _ref: Any
     _taskCache: dict[str, SomeTask]
     _tagCache: dict[str, SomeTag]
@@ -23,23 +29,14 @@ class PropertyCache:
         return CachedReference(lambda: self._properties[getattr(k, name)])
 
     def parent_task(self) -> SomeTask:
-        # do the same thing with tags?
         ref = self._properties[k.parent_task]
         if ref == k.missing_value:
             return ref
         # TODO: we already _got_ the .id() but appscript keeps it as private
         # data, so we have to fish it out like this
-        parentID = ref.AS_aemreference._key
-        if parentID not in self._taskCache:
-            log.info("cache miss for parent ID {tagID}", tagID=parentID)
-            result: Any = PropertyCache(
-                ref, self._taskCache, self._tagCache, ref.properties()
-            )
-            # TODO: if the parent task doesn't match the expression, we store
-            # it in the cache anyway, and that's bad, because it results in a
-            # too-large denominator
-            self._taskCache[parentID] = result
-        return self._taskCache[parentID]
+        return fromRef(
+            ref, "parent ID", self._taskCache, self._taskCache, self._tagCache
+        )
 
     def tags(self) -> Sequence[SomeTag]:
         if self._cachedTagRefs is None:
@@ -49,22 +46,35 @@ class PropertyCache:
         refs = self._cachedTagRefs
         result = []
         for ref in refs:
-            # see TODO in parent_task
-            tagID = ref.AS_aemreference._key
-            if tagID not in self._tagCache:
-                log.info("cache miss for tag ID {tagID}", tagID=tagID)
-                # ehhh close enough, parent_task is wrong but attr access
-                # should line up close enough.
-                newCachedTag: Any = PropertyCache(
-                    ref, self._taskCache, self._tagCache, ref.properties()
-                )
-                self._tagCache[tagID] = newCachedTag
-            result.append(self._tagCache[tagID])
+            result.append(
+                fromRef(ref, "tag ID", self._tagCache, self._taskCache, self._tagCache)
+            )
 
         return result
 
     def properties(self) -> dict[object, Any]:
         return self._properties
+
+
+def fromRef[T: SomeTask | SomeTag](
+    ref: Any,
+    someType: str,
+    someCache: dict[str, T],
+    taskCache: dict[str, SomeTask],
+    tagCache: dict[str, SomeTag],
+    overwrite: bool = False,
+) -> T:
+    someID = ref.AS_aemreference._key
+    if overwrite or someID not in someCache:
+        log.info("cache miss for {someType} {someID}", someType=someType, someID=someID)
+        newCache: T = PropertyCache(  # type:ignore[assignment]
+            ref,
+            taskCache,
+            tagCache,
+            ref.properties(),
+        )
+        someCache[someID] = newCache
+    return someCache[someID]
 
 
 def asPropertyCache(
