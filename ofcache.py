@@ -66,6 +66,10 @@ def fromRef[T: SomeTask | SomeTag](
 ) -> T:
     someID = ref.AS_aemreference._key
     if type(someID) == bytes:
+        # Not sure why this is sometimes one of those 4-byte codes rather than
+        # the actual ID being addressed, but it seems to be a `str` when it's
+        # an ID and a `bytes` when it's that, so let's just call the .id()
+        # method to get the correct answer when we know it's wrong.
         someID = ref.id()
     if overwrite or someID not in someCache:
         log.info("cache miss for {someType} {someID}", someType=someType, someID=someID)
