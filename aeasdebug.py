@@ -7,6 +7,7 @@ log = Logger()
 
 originalCall = appscript.reference.Command.__call__
 originalSend = aem.aemsend.Event.send
+originalEventInit = aem.aemsend.Event.__init__
 
 
 def debugCommandMethod(self, *args, **kargs):
@@ -20,15 +21,28 @@ def debugCommandMethod(self, *args, **kargs):
     return originalCall(self, *args, **kargs)
 
 
+def saveParamsAndAtts(self, address, event, params={}, atts={}, *args, **kwargs):
+    self._Event__params = params
+    self._Event__atts = atts
+    return originalEventInit(self, address, event, params, atts, *args, **kwargs)
+
+
 def debugSend(self, *args, **kargs):
     log.info(
         "sending AE {params} {atts}",
         params=self._Event__params,
         atts=self._Event__atts,
     )
-    return originalSend(self, *args, **kargs)
+    result = originalSend(self, *args, **kargs)
+    log.info(
+        "response received AE {params} {atts}",
+        params=self._Event__params,
+        atts=self._Event__atts,
+    )
+    return result
 
 
 def install():
-    appscript.reference.Command.__call__ = debugCommandMethod
+    # appscript.reference.Command.__call__ = debugCommandMethod
+    aem.aemsend.Event.__init__ = saveParamsAndAtts
     aem.aemsend.Event.send = debugSend

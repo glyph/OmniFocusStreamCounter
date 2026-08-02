@@ -146,7 +146,6 @@ class CachedReference[T]:
 
     def __call__(self) -> T:
         result = self.get()
-        print(f"retrieving: {self.name} result: {result}")
         return result
 
     def __bool__(self) -> bool:

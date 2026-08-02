@@ -155,18 +155,12 @@ class OFReader:
 
     async def run(self) -> None:
 
-        # print("Checking!")
         while True:
-            # print("Resting!")
             await self.rest(1.0)
-            # print("Computing!")
             result = await self.updateAndRetry()
-            # print("Updating!")
             if result is not None:
                 avail_pct, complete_pct = result
                 self.updatePercentages.updateProgress(avail_pct, complete_pct)
-            # print("Updated!")
-            # tn = time()
 
     async def updateAndRetry(self) -> tuple[float, float] | None:
         while True:
@@ -179,10 +173,6 @@ class OFReader:
                 omnifocus.launch()
 
     async def oneUpdate(self) -> tuple[float, float] | None:
-        # t0 = time()
-
-        # print("constructing query")
-        # print("constructed")
         pending = []
         available_pending = 0.0
         # wait for omnifocus to be in the background so we don't block its
@@ -213,7 +203,6 @@ class OFReader:
                 self.updatePercentages.updateLoading(pctdone)
                 await self.rest(0.01)
             # await self.rest()
-            # print(f"revalidating {each.id()}: {expression(each, today, tomorrow)}")
             if each.effectively_completed() or each.effectively_dropped():
                 all_completed += 1
                 # log.info(
@@ -249,6 +238,8 @@ class OFReader:
 
 def query(reactor: object, progress: ProgressStatus) -> Deferred[None]:
     async def setUpAndGo() -> None:
+        # from aeasdebug import install
+        # install()
         clock = IReactorTime(reactor)
         cacher = await Cacher.new(clock, progress)
         reader = OFReader(clock, progress, cacher)

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-cache()
+from typing import Callable, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    cache: Callable[[], None] = lambda: None
+cache()  # type:ignore[name-defined]
 
 from dataclasses import dataclass, field
 from json import dumps
@@ -9,7 +13,11 @@ from twisted.internet import reactor
 from twisted.logger import Logger
 from twisted.python.failure import Failure
 from twisted.web.server import Request
-from twisted.web.websocket import WebSocketResource, WebSocketTransport
+from twisted.web.websocket import (
+    WebSocketProtocol,
+    WebSocketResource,
+    WebSocketTransport,
+)
 
 from ofprogress import ProgressStatus, query
 
@@ -56,7 +64,7 @@ query(reactor, multi)
 class OmniFocusProgressSocket:
 
     @classmethod
-    def buildProtocol(cls, request: Request) -> OmniFocusProgressSocket:
+    def buildProtocol(cls, request: Request) -> WebSocketProtocol:
         return cls()
 
     def negotiationStarted(self, transport: WebSocketTransport) -> None:
@@ -84,7 +92,7 @@ class OmniFocusProgressSocket:
 
     # Since WebSocketProtocol is a typing.Protocol and not a class, we must
     # provide implementations for all events, even those we don't care about.
-    def bytesMessageReceived(self, data: bytes) -> None: ...
+    def bytesMessageReceived(self, data: bytes | bytearray) -> None: ...
     def pongReceived(self, payload: bytes) -> None: ...
 
 
