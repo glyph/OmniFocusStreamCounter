@@ -3,12 +3,15 @@ namespace_packages = true
 plugins = ["mypy_zope:plugin"]
 
 [[tool.mypy.overrides]]
-ignore_missing_imports = true
-module = [
-  "objc",
-  "Foundation",
-  "AppKit",
-  "ServiceManagement",
-  "setuptools",
-  "appscript",
-]
+    ignore_missing_imports = true
+    module = [
+        "objc",
+        "Foundation",
+        "AppKit",
+        "ServiceManagement",
+        "setuptools",
+        "appscript",
+        "appscript.reference",
+        "aem",
+        "aem.aemsend",
+    ]
