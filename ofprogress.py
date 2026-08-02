@@ -23,7 +23,6 @@ mail = app("mail")
 inbox = mail.accounts["Fastmail"]().mailboxes["INBOX"]
 
 # TODO: account for untriaged omnifocus inbox
-# TODO: detect tombstones (scan Cacher.valued for dead IDs)
 
 
 def available(task: SomeTask) -> bool:
