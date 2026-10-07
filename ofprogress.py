@@ -22,8 +22,6 @@ doc = omnifocus.documents[0].get()
 mail = app("mail")
 inbox = mail.accounts["Fastmail"]().mailboxes["INBOX"]
 
-# TODO: account for untriaged omnifocus inbox
-
 
 def available(task: SomeTask) -> bool:
     """
