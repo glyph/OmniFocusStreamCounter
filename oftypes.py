@@ -53,6 +53,7 @@ class SomeTag(Protocol):
 class SomeTask(Protocol):
     name: AbstractReference[str]
     id: AbstractReference[str]
+    in_inbox: AbstractReference[bool]
     effective_due_date: AbstractReference[DateTime[None]]
     effectively_completed: AbstractReference[bool]
     effectively_dropped: AbstractReference[bool]
